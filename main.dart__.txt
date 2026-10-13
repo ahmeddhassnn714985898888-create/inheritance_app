@@ -1,0 +1,194 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
+
+void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  runApp(const InheritanceApp());
+}
+
+class InheritanceApp extends StatelessWidget {
+  const InheritanceApp({Key? key}) : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'قسمة الورثة',
+      theme: ThemeData(
+        primarySwatch: Colors.teal,
+        useMaterial3: true,
+        scaffoldBackgroundColor: const Color(0xFFF8F9FA),
+      ),
+      home: const HomeScreen(),
+      debugShowCheckedModeBanner: false,
+    );
+  }
+}
+
+class DatabaseHelper {
+  static final DatabaseHelper instance = DatabaseHelper._init();
+  static Database? _database;
+
+  DatabaseHelper._init();
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDB('inheritance_app.db');
+    return _database!;
+  }
+
+  Future<Database> _initDB(String filePath) async {
+    final dbPath = await getDatabasesPath();
+    final path = p.join(dbPath, filePath);
+
+    return await openDatabase(
+      path,
+      version: 1,
+      onCreate: _createDB,
+    );
+  }
+
+  Future _createDB(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE heirs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        relation TEXT NOT NULL,
+        custom_deduction REAL DEFAULT 0.0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE properties (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        type TEXT NOT NULL,
+        tenant_name TEXT,
+        monthly_rent REAL DEFAULT 0.0
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE transactions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        heir_id INTEGER NOT NULL,
+        amount REAL NOT NULL,
+        type TEXT NOT NULL,
+        notes TEXT,
+        date TEXT NOT NULL
+      )
+    ''');
+  }
+
+  Future<String> exportBackup() async {
+    final db = await database;
+    final heirs = await db.query('heirs');
+    final properties = await db.query('properties');
+    final transactions = await db.query('transactions');
+
+    final backupData = {
+      'heirs': heirs,
+      'properties': properties,
+      'transactions': transactions,
+      'date': DateTime.now().toIso8601String(),
+    };
+
+    final directory = await getApplicationDocumentsDirectory();
+    final filePath = p.join(directory.path, 'inheritance_backup.json');
+    final file = File(filePath);
+    await file.writeAsString(jsonEncode(backupData));
+    return filePath;
+  }
+}
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({Key? key}) : super(key: key);
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  String _status = 'التطبيق جاهز ومحفوظ محلياً بالكامل (بالريال اليمني)';
+
+  void _createBackup() async {
+    try {
+      String path = await DatabaseHelper.instance.exportBackup();
+      setState(() {
+        _status = 'تم حفظ النسخة الاحتياطية في:\n$path';
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('تم حفظ النسخة الاحتياطية بنجاح')),
+      );
+    } catch (e) {
+      setState(() {
+        _status = 'خطأ أثناء النسخ: $e';
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('قسمة الورثة وإدارة التركة'),
+        centerTitle: true,
+        backgroundColor: Colors.teal,
+        foregroundColor: Colors.white,
+      ),
+      body: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Card(
+                color: Colors.teal.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Column(
+                    children: [
+                      const Icon(Icons.security, size: 36, color: Colors.teal),
+                      const SizedBox(height: 8),
+                      const Text('نظام الحفظ المحلي والنسخ الاحتياطي', style: TextStyle(fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 4),
+                      Text(_status, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.people),
+                label: const Text('إدارة الورثة والأنصبة والخصومات'),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.store),
+                label: const Text('عقارات التركة والإيجارات (ريال يمني)'),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                onPressed: () {},
+                icon: const Icon(Icons.account_balance_wallet),
+                label: const Text('الحساب التراكمي والمستحقات'),
+              ),
+              const Spacer(),
+              OutlinedButton.icon(
+                onPressed: _createBackup,
+                icon: const Icon(Icons.backup),
+                label: const Text('أخذ نسخة احتياطية (JSON)'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
